@@ -41,6 +41,11 @@
   // Text blocks of a slide. The image is deliberately not here: while
   // swiping, only media should be visible on the incoming slide.
   var CONTENT = ['.projects-slider-item-category', '.projects-slider-item-title', '.projects-slider-actions'];
+  var IMAGE = '.projects-slider-item-image';
+  // Scaling a full-bleed photo is cheap on a desktop GPU and visibly rough on
+  // a phone, so touch devices get a much smaller, shorter move.
+  var ZOOM = { scale: 1.2, duration: 1 };
+  var ZOOM_TOUCH = { scale: 1.06, duration: 0.6 };
   // Returning to the slide you started on should snap back, not glide.
   var CANCEL_DURATION = 0.3;
 
@@ -49,7 +54,10 @@
     // without this touch devices fight the slider for the gesture.
     '.projects-slider-wrapper{touch-action:pan-y;}' +
     '.projects-slider-wrapper img{-webkit-user-drag:none;user-drag:none;}' +
-    '.projects-slider-item{-webkit-user-select:none;user-select:none;}';
+    '.projects-slider-item{-webkit-user-select:none;user-select:none;}' +
+    // Keeps the scaled photo off the repaint path and avoids the edge
+    // flicker phones show while transforming a large image.
+    '.projects-slider-item-image{backface-visibility:hidden;-webkit-backface-visibility:hidden;}';
 
   function vw(px) {
     return F.units.designVw(px, DESIGN_WIDTH);
@@ -81,6 +89,8 @@
     this.currentIndex = 0;
 
     F.css('projects-slider', CSS);
+    this.zoom = F.device.isTouch() || F.device.group() === 'mobile' ? ZOOM_TOUCH : ZOOM;
+    this.primeImages();
     this.build();
     this.bindHover();
     this.bindShare();
@@ -156,6 +166,24 @@
     return ((steps % this.count) + this.count) % this.count;
   };
 
+  /**
+   * The slider sits in the hero, so `loading="lazy"` on its images means the
+   * next slide starts fetching a 100vw photo exactly as it swipes into view —
+   * which is what made the zoom look like it stuttered on a phone.
+   */
+  ProjectsSlider.prototype.primeImages = function () {
+    this.slides.forEach(function (slide) {
+      var img = slide.querySelector(IMAGE);
+      if (!img) return;
+      img.loading = 'eager';
+      img.decoding = 'async';
+      if (img.complete) return;
+      // Warm the cache with the source the browser actually picked.
+      var preload = new window.Image();
+      preload.src = img.currentSrc || img.src;
+    });
+  };
+
   /** Text nodes of a slide, in reveal order. */
   ProjectsSlider.prototype.contentOf = function (index) {
     var slide = this.slides[index];
@@ -185,15 +213,38 @@
       // Reduced motion: no animation, but the text still has to come back.
       var plain = this.contentOf(index);
       if (plain.length) gsapRef.set(plain, { opacity: 1, y: 0, pointerEvents: 'auto' });
+      var still = this.slides[index] && this.slides[index].querySelector(IMAGE);
+      if (still) gsapRef.set(still, { scale: 1 });
       return;
     }
     var start = typeof delay === 'number' ? delay : REVEAL.delay;
     var gsap = this.gsap;
     var slide = this.slides[index];
-    var image = slide.querySelector('.projects-slider-item-image');
+    var image = slide.querySelector(IMAGE);
     var nodes = this.contentOf(index);
 
-    if (image) gsap.from(image, { scale: 1.2, duration: 1, delay: start, ease: REVEAL.ease, overwrite: 'auto' });
+    if (image) {
+      gsap.fromTo(
+        image,
+        { scale: this.zoom.scale },
+        {
+          scale: 1,
+          duration: this.zoom.duration,
+          delay: start,
+          ease: REVEAL.ease,
+          overwrite: 'auto',
+          // Promote to its own layer only while animating; a permanent
+          // will-change on every slide costs memory on mobile.
+          force3D: true,
+          onStart: function () {
+            image.style.willChange = 'transform';
+          },
+          onComplete: function () {
+            image.style.willChange = '';
+          }
+        }
+      );
+    }
 
     nodes.forEach(function (node, i) {
       // The node was parked at opacity 0 by hideContentExcept(); fromTo makes
