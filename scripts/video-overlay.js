@@ -1,11 +1,13 @@
 /*!
  * Video overlay — swaps a poster block for an inline Vimeo player on click.
- * Replaces: about-video.js and tests/program-overview-video.js
- *           (identical except for their selectors)
+ * Replaces: about-video.js, tests/program-overview-video.js and
+ *           training-overview-video.js (the same component three times over,
+ *           differing only in selectors and where the video id comes from)
  * Requires: shared/fluco-core.js, Vimeo Player API
  *
  * Markup (either the existing classes, or the data-attribute form):
  *   <div class="about-overview-video-wrapper" data-fluco-vimeo-id="1085000174">
+ *   <!-- or, on resource pages: data-video-id="…" -->
  *     <div class="about-overview-video-overlay">…</div>
  *   </div>
  *   <button class="about-overview-video-button">Play</button>
@@ -116,7 +118,9 @@
     var button = F.dom.qs('.' + preset.prefix + '-button');
     if (!section || !button) return null;
     var overlay = F.dom.qs('.' + preset.prefix + '-overlay', section);
-    var videoId = section.dataset.flucoVimeoId || DEFAULT_VIDEO_ID;
+    // training-overview-video.js took the id from data-video-id per item
+    // (resource pages each show a different film); about/program hardcoded it.
+    var videoId = section.dataset.flucoVimeoId || section.dataset.videoId || DEFAULT_VIDEO_ID;
     return new VideoOverlay(section, button, overlay, videoId);
   }
 
