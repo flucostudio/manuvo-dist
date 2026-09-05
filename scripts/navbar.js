@@ -1,6 +1,7 @@
 /*!
  * Navbar — hide-on-scroll-down / reveal-on-scroll-up navigation.
- * Replaces: navbar-new.js (current) and navbar.js / navbar-rc.js (legacy).
+ * Replaces: navbar-new.js (current), navbar-active.js,
+ *           and navbar.js / navbar-rc.js (legacy).
  * Requires: shared/fluco-core.js
  *
  * Markup: the navbar element gets `.scrolled` once the page is scrolled
@@ -51,7 +52,17 @@
     // Map of URL first segment -> nav href to mark as `.active`.
     activeMap: {
       work: '/work'
-    }
+    },
+    // Webflow marks the current nav link with `w--current` and styles it.
+    // Its own detection only matches exact URLs, so section pages
+    // (/blog/<post>, /training/<course>) lose the highlight — these rules
+    // restore it by path prefix. Replaces: navbar-active.js
+    activeLinkSelector: '.redesign-nav-link',
+    activeCurrentClass: 'w--current',
+    activePrefixes: [
+      { path: '/blog', link: '/blog' },
+      { path: '/training', link: '/training' }
+    ]
   };
 
   function Navbar(nav, config) {
@@ -143,9 +154,26 @@
   Navbar.prototype.highlightCurrentPage = function () {
     var slug = window.location.pathname.split('/')[1];
     var target = this.cfg.activeMap[slug];
-    if (!target) return;
-    this.links.forEach(function (link) {
-      if (link.getAttribute('href') === target) link.classList.add('active');
+    if (target) {
+      this.links.forEach(function (link) {
+        if (link.getAttribute('href') === target) link.classList.add('active');
+      });
+    }
+    this.highlightSection();
+  };
+
+  /** Mark the section link with Webflow's own `w--current` on child pages. */
+  Navbar.prototype.highlightSection = function () {
+    var cfg = this.cfg;
+    var path = window.location.pathname;
+    var rules = cfg.activePrefixes || [];
+    rules.forEach(function (rule) {
+      if (path !== rule.path && path.indexOf(rule.path + '/') !== 0) return;
+      F.dom.qsa(cfg.activeLinkSelector + '[href="' + rule.link + '"]').forEach(function (link) {
+        link.classList.add(cfg.activeCurrentClass);
+        // Webflow's own markup also carries aria-current on the active link.
+        link.setAttribute('aria-current', 'page');
+      });
     });
   };
 

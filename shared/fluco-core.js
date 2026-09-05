@@ -11,7 +11,7 @@
 (function (window, document) {
   'use strict';
 
-  var VERSION = '1.0.0';
+  var VERSION = '1.1.0';
 
   // Idempotent: a second copy of the core on the page is a no-op.
   if (window.Fluco && window.Fluco.version === VERSION) return;
@@ -118,6 +118,54 @@
 
   function prefersReducedMotion() {
     return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  }
+
+  /**
+   * Platform detection by user agent, kept bit-for-bit compatible with the
+   * legacy `device.js` global that several scripts still branch on.
+   *
+   * Deliberately NOT the same thing as `group()`: that one classifies the
+   * viewport, this one classifies the machine. An iPad in landscape is
+   * `tablet` here but `desktop` by width, and the spotlight slider depends
+   * on the difference.
+   */
+  var platformInfo = null;
+
+  function detectPlatform() {
+    var ua = navigator.userAgent.toLowerCase();
+    var isIPad =
+      /ipad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+    var os;
+    if (ua.indexOf('iphone') !== -1 || ua.indexOf('ipod') !== -1) os = 'iOS';
+    else if (isIPad) os = 'iPadOS';
+    else if (ua.indexOf('android') !== -1) os = 'Android';
+    else if (ua.indexOf('windows') !== -1) os = 'Windows';
+    else if (ua.indexOf('mac os') !== -1 || ua.indexOf('macintosh') !== -1) os = 'MacOS';
+    else os = 'Unknown';
+
+    var type;
+    if (os === 'Windows' || os === 'MacOS') type = 'desktop';
+    else if (os === 'iPadOS' || (os === 'Android' && window.innerWidth >= 768)) type = 'tablet';
+    else if (os === 'iOS' || os === 'Android') type = 'mobile';
+    else type = 'unknown';
+
+    return { os: os, type: type };
+  }
+
+  function platform() {
+    // Android's phone/tablet split reads innerWidth, so re-evaluate rather
+    // than freezing the answer at load time.
+    if (!platformInfo || platformInfo.os === 'Android') platformInfo = detectPlatform();
+    return platformInfo;
+  }
+
+  function platformType() {
+    return platform().type;
+  }
+
+  function platformOs() {
+    return platform().os;
   }
 
   /* ------------------------------------------------------------------ */
@@ -384,7 +432,10 @@
       name: deviceName,
       group: deviceGroup,
       isTouch: isTouch,
-      prefersReducedMotion: prefersReducedMotion
+      prefersReducedMotion: prefersReducedMotion,
+      // User-agent based, mirrors the legacy device.js global.
+      type: platformType,
+      os: platformOs
     },
     units: {
       pxToVw: pxToVw,
