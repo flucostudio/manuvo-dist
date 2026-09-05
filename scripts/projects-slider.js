@@ -33,7 +33,13 @@
   // so ordinary short swipes snapped back and felt broken.
   var FLICK_DISTANCE = 0.12; // share of slide width
   var FLICK_VELOCITY = 0.35; // px per ms
+  // Auto-advance takes 2s, so its text starts midway through the move.
+  // A swipe lands in 0.5s — the same delay would show the text after the
+  // slide has already stopped, which reads as "the text is late".
   var REVEAL = { delay: 1, stagger: 0.1, duration: 0.75, ease: 'power3.out' };
+  var SWIPE_REVEAL_DELAY = 0.12;
+  // Returning to the slide you started on should snap back, not glide.
+  var CANCEL_DURATION = 0.3;
 
   var CSS =
     // Let the browser keep vertical scrolling while we take horizontal drags;
@@ -69,6 +75,7 @@
     this.reduced = F.device.prefersReducedMotion();
     this.offs = [];
     this.press = null; // { x, time } while a drag is in progress
+    this.currentIndex = 0;
 
     F.css('projects-slider', CSS);
     this.build();
@@ -134,12 +141,20 @@
     this.track.progress(this.progressWrap(x / this.wrapWidth));
   };
 
+  /**
+   * Slide showing at offset `x`. Dragging left (negative x) walks forward
+   * through the slides, so the sign is inverted before wrapping; the old
+   * Math.abs() version returned the wrong slide for rightward moves — at
+   * +1 slide it reported index 1 instead of the last one.
+   */
   ProjectsSlider.prototype.indexFromX = function (x) {
-    return Math.abs(Math.round(x / this.slideWidth) % this.count);
+    var steps = -Math.round(x / this.slideWidth);
+    return ((steps % this.count) + this.count) % this.count;
   };
 
-  ProjectsSlider.prototype.revealSlide = function (index) {
+  ProjectsSlider.prototype.revealSlide = function (index, delay) {
     if (this.reduced) return;
+    var start = typeof delay === 'number' ? delay : REVEAL.delay;
     var gsap = this.gsap;
     var slide = this.slides[index];
     var image = slide.querySelector('.projects-slider-item-image');
@@ -147,24 +162,33 @@
     var title = slide.querySelector('.projects-slider-item-title');
     var actions = slide.querySelector('.projects-slider-actions');
 
-    if (image) gsap.from(image, { scale: 1.2, duration: 1, delay: REVEAL.delay, ease: REVEAL.ease, overwrite: 'auto' });
+    if (image) gsap.from(image, { scale: 1.2, duration: 1, delay: start, ease: REVEAL.ease, overwrite: 'auto' });
     [category, title, actions].forEach(function (node, i) {
       if (!node) return;
       gsap.from(node, {
         y: vw(80),
         opacity: 0,
         duration: REVEAL.duration,
-        delay: REVEAL.delay + REVEAL.stagger * (i + 2),
+        delay: start + REVEAL.stagger * (i + 2),
         ease: REVEAL.ease,
         overwrite: 'auto'
       });
     });
   };
 
-  ProjectsSlider.prototype.animateTo = function (x, duration, ease) {
+  ProjectsSlider.prototype.animateTo = function (x, duration, ease, revealDelay) {
     this.timer.restart(true);
     this.slideTween.kill();
-    this.revealSlide(this.indexFromX(x));
+
+    // Only re-run the reveal when the slide actually changes. Cancelling a
+    // swipe lands on the slide you were already on, and replaying the text
+    // animation there looks like a glitch.
+    var index = this.indexFromX(x);
+    if (index !== this.currentIndex) {
+      this.currentIndex = index;
+      this.revealSlide(index, revealDelay);
+    }
+
     this.slideTween = this.gsap.to(this.proxy, {
       x: x,
       duration: duration || SLIDE_DURATION,
@@ -201,9 +225,11 @@
       // A short flick: advance exactly one slide from where the drag began.
       target = this.snapX(press.x) + (dx > 0 ? 1 : -1) * this.slideWidth;
     } else {
-      target = this.snapX(press.x);
+      // Swipe abandoned — snap back quickly and leave the text alone.
+      this.animateTo(this.snapX(press.x), CANCEL_DURATION, SWIPE_EASE);
+      return;
     }
-    this.animateTo(target, SWIPE_DURATION, SWIPE_EASE);
+    this.animateTo(target, SWIPE_DURATION, SWIPE_EASE, SWIPE_REVEAL_DELAY);
   };
 
   ProjectsSlider.prototype.animateSlides = function (direction) {
