@@ -9,7 +9,8 @@
  *     .redesign-button.white-ghost   (share button, optional)
  *   .share-modal-dynamic > .sc-modal (one per slide, same order, optional)
  *
- * Based on the GSAP "infinite draggable slider" helper.
+ * Based on the GSAP "infinite draggable slider" helper, with flick
+ * detection added for the case where InertiaPlugin is absent.
  */
 (function (window, document) {
   'use strict';
@@ -22,8 +23,24 @@
 
   var DESIGN_WIDTH = 1440; // Figma artboard width used for `vw()` values
   var SLIDE_DELAY = 6; // seconds between auto-advances
-  var SLIDE_DURATION = 2; // seconds per transition
+  var SLIDE_DURATION = 2; // seconds per auto-advance transition
+  // A swipe must land quickly — 2s of power3.inOut after the finger is gone
+  // reads as lag, so releases animate on their own, shorter curve.
+  var SWIPE_DURATION = 0.5;
+  var SWIPE_EASE = 'power2.out';
+  // A flick counts when it either travels far enough or moves fast enough.
+  // Without InertiaPlugin the original required dragging past half a slide,
+  // so ordinary short swipes snapped back and felt broken.
+  var FLICK_DISTANCE = 0.12; // share of slide width
+  var FLICK_VELOCITY = 0.35; // px per ms
   var REVEAL = { delay: 1, stagger: 0.1, duration: 0.75, ease: 'power3.out' };
+
+  var CSS =
+    // Let the browser keep vertical scrolling while we take horizontal drags;
+    // without this touch devices fight the slider for the gesture.
+    '.projects-slider-wrapper{touch-action:pan-y;}' +
+    '.projects-slider-wrapper img{-webkit-user-drag:none;user-drag:none;}' +
+    '.projects-slider-item{-webkit-user-select:none;user-select:none;}';
 
   function vw(px) {
     return F.units.designVw(px, DESIGN_WIDTH);
@@ -51,7 +68,9 @@
     this.slideTween = gsap.to({}, {});
     this.reduced = F.device.prefersReducedMotion();
     this.offs = [];
+    this.press = null; // { x, time } while a drag is in progress
 
+    F.css('projects-slider', CSS);
     this.build();
     this.bindHover();
     this.bindShare();
@@ -85,11 +104,14 @@
         self.timer.restart(true);
         self.slideTween.kill();
         this.update();
+        self.press = { x: this.x, time: Date.now() };
       },
       onDrag: this.updateProgress.bind(this),
       onThrowUpdate: this.updateProgress.bind(this),
       onRelease: function () {
-        if (!window.InertiaPlugin) self.animateTo(self.snapX(this.x));
+        // InertiaPlugin, when present, throws and snaps on its own.
+        if (window.InertiaPlugin) return;
+        self.settle(this.x);
       },
       snap: { x: this.snapX.bind(this) }
     });
@@ -139,16 +161,49 @@
     });
   };
 
-  ProjectsSlider.prototype.animateTo = function (x) {
+  ProjectsSlider.prototype.animateTo = function (x, duration, ease) {
     this.timer.restart(true);
     this.slideTween.kill();
     this.revealSlide(this.indexFromX(x));
     this.slideTween = this.gsap.to(this.proxy, {
       x: x,
-      duration: SLIDE_DURATION,
+      duration: duration || SLIDE_DURATION,
       onUpdate: this.updateProgress.bind(this),
-      ease: 'power3.inOut'
+      ease: ease || 'power3.inOut'
     });
+  };
+
+  /**
+   * Decide where a released drag lands. A deliberate flick advances exactly
+   * one slide even when it barely moved, which is how a swipe is expected to
+   * behave; anything smaller returns to the slide it started on.
+   */
+  ProjectsSlider.prototype.settle = function (x) {
+    var press = this.press;
+    this.press = null;
+    if (!press) {
+      this.animateTo(this.snapX(x), SWIPE_DURATION, SWIPE_EASE);
+      return;
+    }
+
+    var dx = x - press.x;
+    var elapsed = Math.max(Date.now() - press.time, 1);
+    var velocity = dx / elapsed;
+    var far = Math.abs(dx) > this.slideWidth * FLICK_DISTANCE;
+    var fast = Math.abs(velocity) > FLICK_VELOCITY;
+
+    var target;
+    if (Math.abs(dx) >= this.slideWidth) {
+      // Dragged a full slide or more: the finger already chose the position,
+      // just round it off.
+      target = this.snapX(x);
+    } else if (far || fast) {
+      // A short flick: advance exactly one slide from where the drag began.
+      target = this.snapX(press.x) + (dx > 0 ? 1 : -1) * this.slideWidth;
+    } else {
+      target = this.snapX(press.x);
+    }
+    this.animateTo(target, SWIPE_DURATION, SWIPE_EASE);
   };
 
   ProjectsSlider.prototype.animateSlides = function (direction) {
