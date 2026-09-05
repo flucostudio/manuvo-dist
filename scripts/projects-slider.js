@@ -38,6 +38,9 @@
   // slide has already stopped, which reads as "the text is late".
   var REVEAL = { delay: 1, stagger: 0.1, duration: 0.75, ease: 'power3.out' };
   var SWIPE_REVEAL_DELAY = 0.12;
+  // Text blocks of a slide. The image is deliberately not here: while
+  // swiping, only media should be visible on the incoming slide.
+  var CONTENT = ['.projects-slider-item-category', '.projects-slider-item-title', '.projects-slider-actions'];
   // Returning to the slide you started on should snap back, not glide.
   var CANCEL_DURATION = 0.3;
 
@@ -124,6 +127,7 @@
     });
 
     this.resize();
+    this.hideContentExcept(this.currentIndex);
     this.offs.push(F.onResize(this.resize.bind(this)));
     this.offs.push(
       F.on(document, 'visibilitychange', function () {
@@ -152,27 +156,61 @@
     return ((steps % this.count) + this.count) % this.count;
   };
 
+  /** Text nodes of a slide, in reveal order. */
+  ProjectsSlider.prototype.contentOf = function (index) {
+    var slide = this.slides[index];
+    if (!slide) return [];
+    return CONTENT.map(function (selector) {
+      return slide.querySelector(selector);
+    }).filter(Boolean);
+  };
+
+  /**
+   * Hide the text on every slide except `keep`. Neighbours are already in
+   * view during a drag, so their text has to be hidden up front — revealing
+   * on release is too late, you would see the next slide's copy slide in.
+   */
+  ProjectsSlider.prototype.hideContentExcept = function (keep) {
+    var gsap = this.gsap;
+    for (var i = 0; i < this.count; i++) {
+      if (i === keep) continue;
+      var nodes = this.contentOf(i);
+      if (nodes.length) gsap.set(nodes, { opacity: 0, pointerEvents: 'none' });
+    }
+  };
+
   ProjectsSlider.prototype.revealSlide = function (index, delay) {
-    if (this.reduced) return;
+    var gsapRef = this.gsap;
+    if (this.reduced) {
+      // Reduced motion: no animation, but the text still has to come back.
+      var plain = this.contentOf(index);
+      if (plain.length) gsapRef.set(plain, { opacity: 1, y: 0, pointerEvents: 'auto' });
+      return;
+    }
     var start = typeof delay === 'number' ? delay : REVEAL.delay;
     var gsap = this.gsap;
     var slide = this.slides[index];
     var image = slide.querySelector('.projects-slider-item-image');
-    var category = slide.querySelector('.projects-slider-item-category');
-    var title = slide.querySelector('.projects-slider-item-title');
-    var actions = slide.querySelector('.projects-slider-actions');
+    var nodes = this.contentOf(index);
 
     if (image) gsap.from(image, { scale: 1.2, duration: 1, delay: start, ease: REVEAL.ease, overwrite: 'auto' });
-    [category, title, actions].forEach(function (node, i) {
-      if (!node) return;
-      gsap.from(node, {
-        y: vw(80),
-        opacity: 0,
-        duration: REVEAL.duration,
-        delay: start + REVEAL.stagger * (i + 2),
-        ease: REVEAL.ease,
-        overwrite: 'auto'
-      });
+
+    nodes.forEach(function (node, i) {
+      // The node was parked at opacity 0 by hideContentExcept(); fromTo makes
+      // the end state explicit so it does not animate from 0 back to 0.
+      gsap.fromTo(
+        node,
+        { y: vw(80), opacity: 0 },
+        {
+          y: 0,
+          opacity: 1,
+          pointerEvents: 'auto',
+          duration: REVEAL.duration,
+          delay: start + REVEAL.stagger * (i + 2),
+          ease: REVEAL.ease,
+          overwrite: 'auto'
+        }
+      );
     });
   };
 
@@ -189,11 +227,17 @@
       this.revealSlide(index, revealDelay);
     }
 
+    var self = this;
     this.slideTween = this.gsap.to(this.proxy, {
       x: x,
       duration: duration || SLIDE_DURATION,
       onUpdate: this.updateProgress.bind(this),
-      ease: ease || 'power3.inOut'
+      ease: ease || 'power3.inOut',
+      // Once settled, park every other slide's text again so the next drag
+      // starts with media only.
+      onComplete: function () {
+        self.hideContentExcept(self.currentIndex);
+      }
     });
   };
 
@@ -281,6 +325,12 @@
   };
 
   ProjectsSlider.prototype.destroy = function () {
+    // Put every slide's text back, otherwise the markup is left half-hidden.
+    var gsap = this.gsap;
+    for (var i = 0; i < this.count; i++) {
+      var nodes = this.contentOf(i);
+      if (nodes.length) gsap.set(nodes, { clearProps: 'opacity,pointerEvents,transform' });
+    }
     this.timer.kill();
     this.slideTween.kill();
     this.track.kill();
