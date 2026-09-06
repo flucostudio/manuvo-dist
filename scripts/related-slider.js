@@ -13,6 +13,11 @@
  * component re-shows it via a data attribute. Card styles for phones already
  * exist in the stylesheet — only the layout is added here.
  *
+ * The cards are rebuilt in the same shape as the ones on
+ * /series/changemakers (image, author, title, "Find out more"), so both
+ * pages look alike. The author line only appears when the desktop card
+ * carries data-fluco-related-subtitle — that field does not exist on it yet.
+ *
  * Markup:
  *   .new-changemakers-yml-links-wrapper > .new-changemakers-yml-link*
  */
@@ -29,6 +34,13 @@
   var SWIPER_CSS = 'https://cdn.jsdelivr.net/npm/swiper@11/swiper-bundle.min.css';
 
   var WRAPPER = '.new-changemakers-yml-links-wrapper';
+  var CARD_PIC = '.new-changemakers-yml-link-pic';
+  // Card look copied from /series/changemakers so both pages match. These
+  // classes are styled in the site stylesheet under @media ≤479 by plain
+  // class selectors, so they work outside the old mobile section too.
+  var CARD_COLOUR = 'peach';
+  var BUTTON_LABEL = 'Find out more';
+  var SUBTITLE_ATTR = 'data-fluco-related-subtitle';
   var CARD = '.new-changemakers-yml-link';
   var PANEL = '.new-changemakers-yml';          // coloured panel around the cards
   var SECTION = '.redesign-section.new-related'; // section that wraps it all
@@ -44,7 +56,7 @@
       '[' + FLAG + '] .new-changemakers-yml{display:flex !important;}' +
       // A hidden duplicate would otherwise show the same stories twice.
       '[' + FLAG + '-legacy]{display:none !important;}' +
-      '[' + FLAG + '] .new-changemakers-yml-links-wrapper{display:block !important;}' +
+      '[' + FLAG + '-source]{display:none !important;}' +
       '[' + FLAG + '] .related-swiper{width:100%;overflow:hidden;}' +
       '[' + FLAG + '] .related-swiper .swiper-slide{height:auto;display:flex;}' +
       '[' + FLAG + '] .related-swiper .swiper-slide > *{width:100%;}' +
@@ -78,7 +90,60 @@
     );
   }
 
-  /** Wrap the existing cards; they keep their order and their classes. */
+  /**
+   * Build one card in the shape used on /series/changemakers:
+   *   .mobile-related-card > a > img.mobile-related-card-pic
+   *                        > .mobile-related-card-text-wrapper
+   *                            > .mobile-related-card-header
+   *                                > .captions        (author, optional)
+   *                                > .redesign-small-title
+   *                            > a.redesign-button.white
+   * Built from the desktop card rather than moving it, so the original
+   * markup is untouched and comes straight back above the breakpoint.
+   */
+  RelatedSlider.prototype.cardFrom = function (source) {
+    var href = source.getAttribute('href') || '#';
+    var card = F.dom.el('div', 'mobile-related-card ' + CARD_COLOUR);
+
+    var picLink = F.dom.el('a', 'w-inline-block', { href: href });
+    var sourcePic = F.dom.qs(CARD_PIC, source) || source.querySelector('img');
+    if (sourcePic) {
+      // Clone keeps srcset/sizes, so the phone still picks a small file.
+      var pic = sourcePic.cloneNode(true);
+      pic.className = 'mobile-related-card-pic';
+      picLink.appendChild(pic);
+    }
+    card.appendChild(picLink);
+
+    var text = F.dom.el('div', 'mobile-related-card-text-wrapper');
+    var header = F.dom.el('div', 'mobile-related-card-header');
+
+    // The desktop card has no author field; show the line only when one is
+    // supplied via the attribute.
+    var subtitle = source.getAttribute(SUBTITLE_ATTR);
+    if (subtitle) {
+      var caption = F.dom.el('div', 'captions');
+      caption.textContent = subtitle;
+      header.appendChild(caption);
+    }
+
+    var title = F.dom.el('div', 'redesign-small-title');
+    // Title is whatever the desktop card shows next to its image.
+    var titleNode = Array.prototype.filter.call(source.children, function (child) {
+      return child.tagName !== 'IMG';
+    })[0];
+    title.textContent = titleNode ? (titleNode.textContent || '').trim() : (source.textContent || '').trim();
+    header.appendChild(title);
+    text.appendChild(header);
+
+    var button = F.dom.el('a', 'redesign-button white w-button', { href: href });
+    button.textContent = BUTTON_LABEL;
+    text.appendChild(button);
+
+    card.appendChild(text);
+    return card;
+  };
+
   RelatedSlider.prototype.build = function () {
     if (this.built || this.cards.length < 2) return;
 
@@ -86,24 +151,24 @@
     this.track = F.dom.el('div', 'swiper-wrapper');
     this.container.appendChild(this.track);
 
-    this.cards.forEach(function (card) {
+    this.cards.forEach(function (source) {
       var slide = F.dom.el('div', 'swiper-slide');
-      slide.appendChild(card);
+      slide.appendChild(this.cardFrom(source));
       this.track.appendChild(slide);
     }, this);
 
     this.dots = F.dom.el('div', 'fluco-related-dots');
-    this.wrapper.appendChild(this.container);
-    this.wrapper.appendChild(this.dots);
+    // Hide the desktop cards rather than move them: the slider shows copies.
+    this.wrapper.setAttribute(FLAG + '-source', '');
+    this.wrapper.parentNode.insertBefore(this.container, this.wrapper.nextSibling);
+    this.container.parentNode.insertBefore(this.dots, this.container.nextSibling);
     this.built = true;
   };
 
-  /** Put the cards back exactly where they were. */
+  /** Drop the copies and reveal the original cards again. */
   RelatedSlider.prototype.unbuild = function () {
     if (!this.built) return;
-    this.cards.forEach(function (card) {
-      this.wrapper.appendChild(card);
-    }, this);
+    this.wrapper.removeAttribute(FLAG + '-source');
     if (this.container.parentNode) this.container.parentNode.removeChild(this.container);
     if (this.dots.parentNode) this.dots.parentNode.removeChild(this.dots);
     this.built = false;
