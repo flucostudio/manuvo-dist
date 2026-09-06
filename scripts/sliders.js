@@ -2,7 +2,9 @@
  * Sliders — horizontal Swiper carousels used across the site.
  * Replaces: slider.js (base class), courses-sliders.js, events-sliders.js,
  *           training-sliders.js, projects-sliders.js, members-slider.js,
- *           and the benefits slider from program-sliders.js
+ *           the benefits slider from program-sliders.js,
+ *           case-studies-partners-slider.js and the slider half of
+ *           media-assets.js
  * Requires: shared/fluco-core.js, Swiper
  *
  * The originals each shipped their own copy of the base class and of
@@ -108,6 +110,28 @@
           'gap:2.778vw !important;}' +
         '.desktop-scroll .swiper-slide{scroll-snap-align:start;flex:0 0 auto;width:45% !important;}' +
         baseCss('.desktop-scroll')
+    },
+    {
+      name: 'media-assets',
+      selector: '.media-slider-parent',
+      gapVw: 1.389,
+      css:
+        '.media-slider-parent .swiper-wrapper{display:flex !important;flex-wrap:nowrap !important;}' +
+        '.media-slider-parent .swiper-slide{scroll-snap-align:start;flex:0 0 auto;width:45% !important;}' +
+        baseCss('.media-slider-parent') +
+        '@media (max-width:767px){.media-slider-parent .swiper-slide{width:100% !important;}}'
+    },
+    {
+      name: 'partners',
+      selector: '.partners-slider',
+      gapVw: 5,
+      autoplayDelay: 5000,
+      pauseOnHover: true,
+      params: { slidesPerView: 1, loop: true, speed: 1000 },
+      css:
+        '.partners-slider .swiper-wrapper{display:flex !important;flex-direction:row !important;}' +
+        '.partners-slider .swiper-slide{width:100% !important;}' +
+        baseCss('.partners-slider')
     },
     {
       name: 'members',
